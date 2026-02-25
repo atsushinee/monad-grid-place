@@ -1,0 +1,13 @@
+/backend/target/
+*/gemini.js
+/backend/.env
+/.idea/.gitignore
+/.idea/data_source_mapping.xml
+/.idea/dataSources.xml
+/.idea/modules.xml
+/.idea/monad-grid-place.iml
+/.idea/sqldialects.xml
+/.idea/vcs.xml
+/backend/.sqlx/query-ac6e1fa8cededc202be59fb3d6b08229cc581d972166f84c3228f7d67cbc3645.json
+/backend/.sqlx/query-ad88188350b87ae7789376159222fee4e31ef87c9d60ee0c864edc305d826f71.json
+/backend/.sqlx/query-fc2d64a2dcc139c851ea56b87487a32cc27bc101875c90eabde51c48de9050c2.json

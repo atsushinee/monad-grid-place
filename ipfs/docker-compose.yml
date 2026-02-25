@@ -1,0 +1,16 @@
+version: '3'
+
+services:
+  ipfs:
+    image: ipfs/kubo:latest
+    container_name: ipfs_node
+    restart: unless-stopped
+    ports:
+      - "4001:4001"
+      - "4001:4001/udp"
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:5001:5001"
+    volumes:
+      # 注意这里的路径：我们要明确指定数据存放在 D 盘的那个固定位置
+      - ./staging:/export
+      - /d/dev/docker/ipfs/data:/data/ipfs
