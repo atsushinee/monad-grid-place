@@ -14,7 +14,7 @@ pub async fn get_grid_cell_handler(
     State(state): State<AppState>,
     Path((x, y)): Path<(i32, i32)>,
 ) -> Result<Json<GridCell>, AppError> {
-    let cell = grid_service::get_grid_cell(&state.db_pool, x, y)
+    let cell = grid_service::get_grid_cell(&state, x, y)
         .await?
         .ok_or_else(|| AppError::NotFound("Grid cell not found".to_string()))?;
     Ok(Json(cell))
@@ -35,6 +35,6 @@ pub async fn get_grid_cells_paginated_handler(
     State(state): State<AppState>,
     Query(pagination): Query<Pagination>,
 ) -> Result<Json<Vec<GridCell>>, AppError> {
-    let cells = grid_service::get_grid_cells_paginated(&state.db_pool, pagination.page, pagination.page_size).await?;
+    let cells = grid_service::get_grid_cells_paginated(&state, pagination.page, pagination.page_size).await?;
     Ok(Json(cells))
 }

@@ -4,10 +4,12 @@ use axum::{
 };
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tower_http::cors::{Any, CorsLayer};
 use reqwest::Client;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+use dashmap::DashMap;
 
 mod routes;
 mod config;
@@ -20,6 +22,7 @@ use routes::{
     health::health_handler,
     upload::upload_handler,
     grid::{get_grid_cell_handler, get_grid_cells_paginated_handler},
+    cache::{cache_metadata_handler, get_cached_metadata_handler},
 };
 pub use error::AppError;
 
@@ -28,6 +31,7 @@ pub struct AppState {
     pub config: Arc<AppConfig>,
     pub http_client: Client,
     pub db_pool: PgPool,
+    pub cache: Arc<DashMap<String, String>>,
 }
 
 #[tokio::main]
@@ -43,17 +47,25 @@ async fn main() -> anyhow::Result<()> {
         .await?;
     println!("Database connected.");
 
-    // Optional: Run migrations at startup
-    // sqlx::migrate!("./migrations").run(&db_pool).await?;
-    // println!("Migrations ran successfully.");
-
     let http_client = Client::new();
+    let cache = Arc::new(DashMap::new());
 
     let app_state = AppState {
         config: app_config.clone(),
         http_client,
         db_pool,
+        cache: cache.clone(),
     };
+
+    // Spawn a task to clean up the cache periodically
+    tokio::spawn(async move {
+        // This is a simple cache cleanup, a proper solution might use TTL caches
+        loop {
+            tokio::time::sleep(Duration::from_secs(60 * 10)).await; // Clean every 10 minutes
+            println!("Clearing temporary CID cache.");
+            cache.clear();
+        }
+    });
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -65,6 +77,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/upload", post(upload_handler))
         .route("/grid", get(get_grid_cells_paginated_handler))
         .route("/grid/:x/:y", get(get_grid_cell_handler))
+        .route("/cache", post(cache_metadata_handler))
+        .route("/cache/:cid_hash", get(get_cached_metadata_handler))
         .with_state(app_state)
         .layer(cors);
 

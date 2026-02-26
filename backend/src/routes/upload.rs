@@ -7,33 +7,30 @@ use crate::{
     services::upload_service,
 };
 
+// The request now only contains data destined for IPFS
 #[derive(Deserialize)]
 pub struct UploadRequest {
-    pub x: u32,
-    pub y: u32,
-    pub color: String,
-    pub owner: String,
+    pub link: String,
+    pub message: String,
 }
 
+// The response includes both the raw CID and its keccak256 hash
 #[derive(Serialize)]
 pub struct UploadResponse {
-    pub message: String,
     pub cid: String,
+    pub cid_hash: String,
 }
 
 pub async fn upload_handler(
     State(state): State<AppState>,
     Json(payload): Json<UploadRequest>,
 ) -> Result<Json<UploadResponse>, AppError> {
-    println!(
-        "Received upload request for coordinates ({}, {})",
-        payload.x, payload.y
-    );
+    println!("Received upload request.");
 
-    let cid = upload_service::handle_upload(&state, &payload).await?;
+    let (cid, cid_hash) = upload_service::handle_upload(&state, &payload).await?;
 
     Ok(Json(UploadResponse {
-        message: "Upload successful".into(),
         cid,
+        cid_hash,
     }))
 }

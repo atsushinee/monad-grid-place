@@ -1,62 +1,54 @@
-use sqlx::PgPool;
+use futures::future;
 use crate::{
     models::grid::GridCell,
-    routes::upload::UploadRequest,
+    services::ipfs_service,
     AppError,
+    AppState,
 };
 
-pub async fn create_or_update_grid_cell(
-    db_pool: &PgPool,
-    payload: &UploadRequest,
-    ipfs_cid: &str,
-) -> Result<GridCell, AppError> {
-    let cell = sqlx::query_as!(
+pub async fn get_grid_cell(state: &AppState, x: i32, y: i32) -> Result<Option<GridCell>, AppError> {
+    let mut cell = sqlx::query_as!(
         GridCell,
-        r#"
-        INSERT INTO grid_cells (x, y, color, owner, ipfs_cid)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (x, y) DO UPDATE
-        SET color = $3, owner = $4, ipfs_cid = $5, updated_at = NOW()
-        RETURNING *
-        "#,
-        payload.x as i32,
-        payload.y as i32,
-        &payload.color,
-        &payload.owner,
-        ipfs_cid
-    )
-    .fetch_one(db_pool)
-    .await
-    .map_err(|e| AppError::InternalServerError(format!("Failed to save to database: {}", e)))?;
-
-    Ok(cell)
-}
-
-pub async fn get_grid_cell(db_pool: &PgPool, x: i32, y: i32) -> Result<Option<GridCell>, AppError> {
-    let cell = sqlx::query_as!(
-        GridCell,
-        "SELECT * FROM grid_cells WHERE x = $1 AND y = $2",
+        "SELECT id, x, y, color, owner, ipfs_cid, created_at, updated_at, CAST(null as TEXT) as link FROM grid_cells WHERE x = $1 AND y = $2",
         x,
         y
     )
-    .fetch_optional(db_pool)
+    .fetch_optional(&state.db_pool)
     .await
     .map_err(|e| AppError::InternalServerError(format!("Failed to query database: {}", e)))?;
+
+    if let Some(ref mut c) = cell {
+        match ipfs_service::fetch_metadata_from_ipfs(state, &c.ipfs_cid).await {
+            Ok(metadata) => c.link = Some(metadata.link),
+            Err(e) => eprintln!("Failed to fetch metadata for CID {}: {:?}", c.ipfs_cid, e),
+        }
+    }
 
     Ok(cell)
 }
 
-pub async fn get_grid_cells_paginated(db_pool: &PgPool, page: i64, page_size: i64) -> Result<Vec<GridCell>, AppError> {
+pub async fn get_grid_cells_paginated(state: &AppState, page: i64, page_size: i64) -> Result<Vec<GridCell>, AppError> {
     let offset = (page - 1) * page_size;
     let cells = sqlx::query_as!(
         GridCell,
-        "SELECT * FROM grid_cells ORDER BY updated_at DESC LIMIT $1 OFFSET $2",
+        "SELECT id, x, y, color, owner, ipfs_cid, created_at, updated_at, CAST(null as TEXT) as link FROM grid_cells ORDER BY updated_at DESC LIMIT $1 OFFSET $2",
         page_size,
         offset
     )
-    .fetch_all(db_pool)
+    .fetch_all(&state.db_pool)
     .await
     .map_err(|e| AppError::InternalServerError(format!("Failed to query database: {}", e)))?;
 
-    Ok(cells)
+    let enriched_cells: Vec<GridCell> = future::join_all(cells.into_iter().map(|mut cell| {
+        let state = state.clone();
+        async move {
+            match ipfs_service::fetch_metadata_from_ipfs(&state, &cell.ipfs_cid).await {
+                Ok(metadata) => cell.link = Some(metadata.link),
+                Err(e) => eprintln!("Failed to fetch metadata for CID {}: {:?}", cell.ipfs_cid, e),
+            }
+            cell
+        }
+    })).await;
+
+    Ok(enriched_cells)
 }

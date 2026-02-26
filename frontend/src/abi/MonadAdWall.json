@@ -1,0 +1,317 @@
+{
+  "abi": [
+    {
+      "type": "constructor",
+      "inputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "receive",
+      "stateMutability": "payable"
+    },
+    {
+      "type": "function",
+      "name": "AD_DURATION",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint64",
+          "internalType": "uint64"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "GRID_SIZE",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "INITIAL_PRICE",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint96",
+          "internalType": "uint96"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "PRICE_INCREASE_PERCENT",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "getPixel",
+      "inputs": [
+        {
+          "name": "index",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "tuple",
+          "internalType": "struct MonadAdWall.Pixel",
+          "components": [
+            {
+              "name": "owner",
+              "type": "address",
+              "internalType": "address"
+            },
+            {
+              "name": "expiry",
+              "type": "uint64",
+              "internalType": "uint64"
+            },
+            {
+              "name": "color",
+              "type": "uint32",
+              "internalType": "uint32"
+            },
+            {
+              "name": "price",
+              "type": "uint96",
+              "internalType": "uint96"
+            },
+            {
+              "name": "cidHash",
+              "type": "bytes32",
+              "internalType": "bytes32"
+            }
+          ]
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "initialize",
+      "inputs": [],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "multicall",
+      "inputs": [
+        {
+          "name": "data",
+          "type": "bytes[]",
+          "internalType": "bytes[]"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "results",
+          "type": "bytes[]",
+          "internalType": "bytes[]"
+        }
+      ],
+      "stateMutability": "payable"
+    },
+    {
+      "type": "function",
+      "name": "owner",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "paint",
+      "inputs": [
+        {
+          "name": "index",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "color",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "cidHash",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "payable"
+    },
+    {
+      "type": "function",
+      "name": "pixels",
+      "inputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "owner",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "expiry",
+          "type": "uint64",
+          "internalType": "uint64"
+        },
+        {
+          "name": "color",
+          "type": "uint32",
+          "internalType": "uint32"
+        },
+        {
+          "name": "price",
+          "type": "uint96",
+          "internalType": "uint96"
+        },
+        {
+          "name": "cidHash",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "upgradeToAndCall",
+      "inputs": [
+        {
+          "name": "newImplementation",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "data",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "payable"
+    },
+    {
+      "type": "function",
+      "name": "withdraw",
+      "inputs": [],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "event",
+      "name": "Initialized",
+      "inputs": [
+        {
+          "name": "version",
+          "type": "uint64",
+          "indexed": false,
+          "internalType": "uint64"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "OwnershipTransferred",
+      "inputs": [
+        {
+          "name": "previousOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "newOwner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "Painted",
+      "inputs": [
+        {
+          "name": "index",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "owner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "color",
+          "type": "uint32",
+          "indexed": false,
+          "internalType": "uint32"
+        },
+        {
+          "name": "price",
+          "type": "uint96",
+          "indexed": false,
+          "internalType": "uint96"
+        },
+        {
+          "name": "cidHash",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "error",
+      "name": "OwnableUnauthorizedAccount",
+      "inputs": [
+        {
+          "name": "account",
+          "type": "address",
+          "internalType": "address"
+        }
+      ]
+    }
+  ]
+}

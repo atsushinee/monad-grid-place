@@ -13,3 +13,4 @@
 /backend/.sqlx/query-fc2d64a2dcc139c851ea56b87487a32cc27bc101875c90eabde51c48de9050c2.json
 /indexer/.env
 target
+/frontend/node_modules/

@@ -1,5 +1,6 @@
 use anyhow::Result;
 use sqlx::postgres::PgPoolOptions;
+use reqwest::Client;
 
 mod config;
 mod listener;
@@ -17,10 +18,12 @@ async fn main() -> Result<()> {
         .await?;
     println!("Database connected.");
 
+    let http_client = Client::new();
+
     listener::start_event_listener(
-        &config.rpc_wss_url,
-        &config.contract_address,
+        &config,
         db_pool,
+        http_client,
     ).await?;
 
     Ok(())

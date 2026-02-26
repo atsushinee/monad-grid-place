@@ -6,6 +6,7 @@ pub struct Config {
     pub rpc_wss_url: String,
     pub contract_address: String,
     pub database_url: String,
+    pub backend_api_url: String,
 }
 
 impl Config {
@@ -15,11 +16,13 @@ impl Config {
         let rpc_wss_url = env::var("RPC_WSS_URL")?;
         let contract_address = env::var("CONTRACT_ADDRESS")?;
         let database_url = env::var("DATABASE_URL")?;
+        let backend_api_url = env::var("BACKEND_API_URL")?;
 
         Ok(Self {
             rpc_wss_url,
             contract_address,
             database_url,
+            backend_api_url,
         })
     }
 }
