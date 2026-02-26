@@ -18,18 +18,17 @@ contract DeployScript is Script {
         console.log("Implementation deployed at:", address(logic));
 
         // 2. 编码初始化数据
-        // 注意：确保 MonadAdWall 里的 initialize 函数确实叫这个名字且没参数
         bytes memory initData = abi.encodeWithSelector(logic.initialize.selector);
 
         // 3. 部署代理合约
-        // 这里会触发 logic 合约的 delegatecall(initData)
         ERC1967Proxy proxy = new ERC1967Proxy(address(logic), initData);
 
         address proxyAddress = address(proxy);
         console.log("Proxy deployed at:", proxyAddress);
 
         // 4. 验证初始化是否成功 (在脚本中直接检查)
-        address currentOwner = MonadAdWall(proxyAddress).owner();
+        // 使用 payable() 进行显式类型转换
+        address currentOwner = MonadAdWall(payable(proxyAddress)).owner();
         console.log("Proxy Owner is:", currentOwner);
 
         vm.stopBroadcast();

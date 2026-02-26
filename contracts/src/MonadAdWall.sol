@@ -5,147 +5,131 @@ import "./deps/Dependencies.sol";
 
 /**
  * @title MonadAdWall
- * @dev 针对 Monad 优化的并行友好型像素墙
- * 增加了 multicall 以支持单次签名大面积涂色，并优化了事件索引。
+ * @author Your Name
+ * @notice A gas-optimized, indexer-friendly, and upgradeable pixel ad wall.
+ *
+ * Architecture:
+ * - UUPS Upgradeable Proxy Pattern.
+ * - On-chain storage is minimized to a packed struct per pixel.
+ * - All descriptive data is stored off-chain on IPFS.
+ * - Structured `Painted` events are emitted for indexer consumption.
  */
 contract MonadAdWall is Initializable, OwnableUpgradeable, UUPSUpgradeable {
+    //================================================================
+    // State & Constants
+    //================================================================
+
+    uint256 public constant GRID_SIZE = 1000 * 1000;
+    uint96 public constant INITIAL_PRICE = 0.01 ether;
+    uint256 public constant PRICE_INCREASE_PERCENT = 10;
+    uint64 public constant AD_DURATION = 30 days;
+
+    /**
+     * @notice Represents a single pixel on the ad wall.
+     * The struct is packed to optimize storage, fitting into 3 storage slots.
+     */
     struct Pixel {
+        // Slot 1: Packed Owner, Expiry, Color (160 + 64 + 32 = 256 bits)
         address owner;
+        uint64 expiry;
         uint32 color;
-        uint256 price;
-        uint256 expiry;
-        string link;
+        // Slot 2: The price for the *next* paint.
+        uint96 price;
+        // Slot 3: keccak256 hash of the IPFS CID.
+        bytes32 cidHash;
     }
 
-    uint256 public constant CANVAS_SIZE = 100;
-    uint256 public constant MIN_PRICE = 0.01 ether;
-    uint256 public constant DURATION = 1 days;
+    mapping(uint256 => Pixel) public pixels;
 
-    mapping(uint256 => Pixel) public canvas;
-    mapping(address => uint256) public pendingWithdrawals;
+    //================================================================
+    // Events
+    //================================================================
 
-    // 优化：给 index 增加 indexed，方便 Go 后端高效过滤特定坐标的事件
-    event Painted(uint256 indexed index, address indexed owner, uint32 color, string link, uint256 price);
-    event Withdrawn(address indexed user, uint256 amount);
+    event Painted(
+        uint256 indexed index,
+        address indexed owner,
+        uint32 color,
+        uint96 price,
+        bytes32 cidHash
+    );
+
+    //================================================================
+    // Initializer & Upgradeability
+    //================================================================
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() { _disableInitializers(); }
+    constructor() {
+        _disableInitializers();
+    }
 
     function initialize() public initializer {
         __Ownable_init(msg.sender);
         __UUPSUpgradeable_init();
     }
 
-    /**
-     * @dev 批量涂色逻辑
-     */
-    function compressedBatchPaint(bytes calldata data, string calldata link) external payable {
-        uint256 pixelCount = data.length / 5;
-        require(pixelCount > 0, "No data");
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
-        uint256 costPerPixel = msg.value / pixelCount;
-        require(costPerPixel >= MIN_PRICE, "Price low");
+    //================================================================
+    // Core Functions
+    //================================================================
 
-        for (uint256 i = 0; i < pixelCount; ) {
-            {
-                uint256 offset = i * 5;
-                uint16 idx = uint16(bytes2(data[offset : offset + 2]));
+    receive() external payable {}
 
-                if (idx < 10000) {
-                    Pixel storage pixel = canvas[idx];
+    function paint(uint256 index, uint32 color, bytes32 cidHash) external payable {
+        require(index < GRID_SIZE, "MGP: Index out of bounds");
 
-                    if (block.timestamp > pixel.expiry || costPerPixel >= (pixel.price * 110) / 100) {
-                        address oldOwner = pixel.owner;
-                        if (oldOwner != address(0)) {
-                            pendingWithdrawals[oldOwner] += pixel.price;
-                        }
+        Pixel storage pixel = pixels[index];
+        uint96 currentPrice = pixel.price;
 
-                        pixel.owner = msg.sender;
-                        pixel.price = costPerPixel;
-                        pixel.expiry = block.timestamp + DURATION;
-                        pixel.link = link;
+        // If the pixel has never been painted or the ad has expired, its price is the initial price.
+        if (currentPrice == 0 || block.timestamp >= pixel.expiry) {
+            currentPrice = INITIAL_PRICE;
+        }
 
-                        uint32 newColor = (uint32(uint8(data[offset + 2])) << 16) |
-                            (uint32(uint8(data[offset + 3])) << 8) |
-                            (uint32(uint8(data[offset + 4])));
+        require(msg.value >= currentPrice, "MGP: Insufficient payment");
 
-                        pixel.color = newColor;
+        // Update pixel state
+        pixel.owner = msg.sender;
+        pixel.color = color;
+        pixel.cidHash = cidHash;
+        pixel.expiry = uint64(block.timestamp + AD_DURATION);
 
-                        emit Painted(idx, msg.sender, newColor, link, costPerPixel);
-                    }
-                }
-            }
-            unchecked { i++; }
+        // Calculate and set the price for the *next* paint using an unchecked block for gas savings.
+        unchecked {
+            pixel.price = uint96(currentPrice * (100 + PRICE_INCREASE_PERCENT) / 100);
+        }
+
+        emit Painted(index, msg.sender, color, currentPrice, cidHash);
+
+        // Refund any excess Ether sent.
+        uint256 excess = msg.value - currentPrice;
+        if (excess > 0) {
+            (bool sent, ) = msg.sender.call{value: excess}("");
+            require(sent, "MGP: Refund failed");
         }
     }
 
-    /**
-     * @dev 新增：Multicall 聚合调用
-     * 允许前端将 2500 个点拆分为多个 100 点的 compressedBatchPaint 并在一个交易中执行。
-     * 这是解决 Gas 报错和提升用户体验的关键。
-     */
+    function getPixel(uint256 index) external view returns (Pixel memory) {
+        return pixels[index];
+    }
+
+    //================================================================
+    // Utility & Admin Functions
+    //================================================================
+
     function multicall(bytes[] calldata data) external payable returns (bytes[] memory results) {
         results = new bytes[](data.length);
         for (uint256 i = 0; i < data.length; i++) {
-            // 使用 delegatecall 保持 msg.sender 和存储上下文
-            (bool success, bytes memory result) = address(this).delegatecall(data[i]);
-
-            if (!success) {
-                // 抛出底层原始错误信息
-                if (result.length > 0) {
-                    assembly {
-                        let returndata_size := mload(result)
-                        revert(add(32, result), returndata_size)
-                    }
-                } else {
-                    revert("Multicall: call failed");
-                }
-            }
+            (bool success, bytes memory result) = address(this).call(data[i]);
+            require(success, "MGP: Multicall sub-call failed");
             results[i] = result;
         }
     }
 
-    function paint(uint256 x, uint256 y, uint32 color, string memory link) public payable {
-        require(x < CANVAS_SIZE && y < CANVAS_SIZE, "Outside bounds");
-        uint256 index = x * CANVAS_SIZE + y;
-        Pixel storage pixel = canvas[index];
-
-        require(msg.value >= MIN_PRICE, "Insufficient payment");
-
-        uint256 currentPrice = pixel.price;
-        require(block.timestamp > pixel.expiry || msg.value >= (currentPrice * 110) / 100, "Must pay 10% more");
-
-        address oldOwner = pixel.owner;
-        if (oldOwner != address(0)) {
-            pendingWithdrawals[oldOwner] += currentPrice;
-        }
-
-        canvas[index] = Pixel({
-            owner: msg.sender,
-            color: color,
-            price: msg.value,
-            expiry: block.timestamp + DURATION,
-            link: link
-        });
-
-        emit Painted(index, msg.sender, color, link, msg.value);
+    function withdraw() external onlyOwner {
+        uint256 balance = address(this).balance;
+        require(balance > 0, "MGP: No balance to withdraw");
+        (bool sent, ) = owner().call{value: balance}("");
+        require(sent, "MGP: Withdraw failed");
     }
-
-    function withdraw() public {
-        uint256 amount = pendingWithdrawals[msg.sender];
-        require(amount > 0, "Nothing to withdraw");
-        pendingWithdrawals[msg.sender] = 0;
-        (bool success, ) = payable(msg.sender).call{value: amount}("");
-        require(success, "Transfer failed");
-        emit Withdrawn(msg.sender, amount);
-    }
-
-    function getPixel(uint256 index) public view returns (Pixel memory) {
-        return canvas[index];
-    }
-
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
-
-    // 升级保护槽
-    uint256[50] private __gap;
 }
