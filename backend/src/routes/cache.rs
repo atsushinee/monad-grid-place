@@ -12,6 +12,7 @@ pub struct CacheRequest {
     pub cid: String,
 }
 
+#[allow(dead_code)]
 pub async fn cache_metadata_handler(
     State(state): State<AppState>,
     Json(payload): Json<CacheRequest>,

@@ -14,3 +14,12 @@
 /indexer/.env
 target
 /frontend/node_modules/
+/.idea/db-forest-config.xml
+/frontend/dist/assets/ccip-BJMtwzIe.js
+/frontend/dist/assets/index-Ciaax16q.js
+/frontend/dist/assets/index-umn2YjEY.css
+/frontend/dist/assets/secp256k1-CNp0OFWD.js
+/frontend/dist/index.html
+/backend/.sqlx/query-get_grid_cell.json
+/backend/.sqlx/query-get_grid_cells_paginated.json
+/backend/.sqlx/query-get_owner_pixels.json

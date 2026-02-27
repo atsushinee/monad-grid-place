@@ -1,7 +1,6 @@
 use ethers::{
     providers::{Provider, Ws},
-    types::{Address, Log},
-    contract::Event,
+    types::Address,
 };
 use std::sync::Arc;
 use anyhow::Result;
@@ -25,16 +24,23 @@ pub async fn start_event_listener(
     let contract = MonadAdWall::new(address, client);
 
     println!("Successfully connected to WebSocket RPC.");
-    println!("Listening for Painted events on contract: {}", config.contract_address);
+    println!("Listening for AreaPainted events on contract: {}", config.contract_address);
 
-    let events = contract.painted_filter();
-    let mut stream = events.subscribe().await?.with_meta();
+    // 监听 AreaPainted 事件（IPFS 快照模式）
+    let events = contract.area_painted_filter();
+    let mut stream = events.subscribe().await?;
 
-    while let Some(Ok((log, meta))) = stream.next().await {
+    while let Some(Ok(log)) = stream.next().await {
         println!("---------------------------------");
-        println!("Received Painted event in block: {}", meta.block_number);
+        println!("📍 Received AreaPainted event!");
 
-        if let Err(e) = storage::save_painted_event(&db_pool, &http_client, &config.backend_api_url, &log).await {
+        if let Err(e) = storage::process_area_painted_event(
+            &db_pool,
+            &http_client,
+            &config.backend_api_url,
+            &config.ipfs_gateway_url,
+            &log
+        ).await {
             eprintln!("Error processing event: {:?}", e);
         }
         println!("---------------------------------");

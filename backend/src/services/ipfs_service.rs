@@ -2,6 +2,7 @@ use reqwest::multipart;
 use serde::Deserialize;
 use serde_json::Value;
 use crate::{AppError, AppState};
+use crate::models::grid::Snapshot;
 
 #[derive(Deserialize)]
 struct IpfsAddResponse {
@@ -9,12 +10,14 @@ struct IpfsAddResponse {
     hash: String,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 pub struct IpfsMetadata {
     pub link: String,
     pub message: String,
 }
 
+/// 将 JSON 数据添加到 IPFS
 pub async fn add_json_to_ipfs(
     state: &AppState,
     json_data: &Value,
@@ -51,6 +54,38 @@ pub async fn add_json_to_ipfs(
     Ok(ipfs_response.hash)
 }
 
+/// 从 IPFS 获取完整的快照数据
+pub async fn fetch_snapshot_from_ipfs(
+    state: &AppState,
+    cid: &str,
+) -> Result<Snapshot, AppError> {
+    let ipfs_api_url = &state.config.ipfs_api_url;
+    let url = format!("{}/api/v0/cat?arg={}", ipfs_api_url, cid);
+
+    let response = state.http_client
+        .post(&url)
+        .send()
+        .await
+        .map_err(|e| AppError::InternalServerError(format!("Failed to send request to IPFS: {}", e)))?;
+
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_else(|_| "Unknown IPFS error".to_string());
+        return Err(AppError::InternalServerError(format!(
+            "IPFS API returned an error while fetching: {}",
+            error_text
+        )));
+    }
+
+    let snapshot = response
+        .json::<Snapshot>()
+        .await
+        .map_err(|e| AppError::InternalServerError(format!("Failed to parse IPFS snapshot: {}", e)))?;
+
+    Ok(snapshot)
+}
+
+/// 从 IPFS 获取元数据（旧版本兼容）
+#[allow(dead_code)]
 pub async fn fetch_metadata_from_ipfs(
     state: &AppState,
     cid: &str,

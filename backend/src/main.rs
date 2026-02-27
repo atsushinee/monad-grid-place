@@ -20,11 +20,17 @@ mod models;
 use config::AppConfig;
 use routes::{
     health::health_handler,
-    upload::upload_handler,
     grid::{get_grid_cell_handler, get_grid_cells_paginated_handler},
-    cache::{cache_metadata_handler, get_cached_metadata_handler},
+    cache::{get_cached_metadata_handler, cache_metadata_handler},
+    snapshot::generate_snapshot_handler,
+    paint_metadata::{submit_paint_metadata_handler, get_paint_metadata_handler},
+    paint_area::{submit_paint_area_handler, get_snapshot_history_handler},
 };
 pub use error::AppError;
+
+use tokio::sync::RwLock;
+use std::collections::HashMap;
+use crate::routes::paint_metadata::PixelData;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -32,6 +38,7 @@ pub struct AppState {
     pub http_client: Client,
     pub db_pool: PgPool,
     pub cache: Arc<DashMap<String, String>>,
+    pub paint_metadata_cache: Arc<RwLock<HashMap<String, Vec<PixelData>>>>,
 }
 
 #[tokio::main]
@@ -49,19 +56,19 @@ async fn main() -> anyhow::Result<()> {
 
     let http_client = Client::new();
     let cache = Arc::new(DashMap::new());
+    let paint_metadata_cache = Arc::new(RwLock::new(HashMap::new()));
 
     let app_state = AppState {
         config: app_config.clone(),
         http_client,
         db_pool,
         cache: cache.clone(),
+        paint_metadata_cache: paint_metadata_cache.clone(),
     };
 
-    // Spawn a task to clean up the cache periodically
     tokio::spawn(async move {
-        // This is a simple cache cleanup, a proper solution might use TTL caches
         loop {
-            tokio::time::sleep(Duration::from_secs(60 * 10)).await; // Clean every 10 minutes
+            tokio::time::sleep(Duration::from_secs(60 * 10)).await;
             println!("Clearing temporary CID cache.");
             cache.clear();
         }
@@ -74,11 +81,15 @@ async fn main() -> anyhow::Result<()> {
 
     let app: Router = Router::new()
         .route("/health", get(health_handler))
-        .route("/upload", post(upload_handler))
         .route("/grid", get(get_grid_cells_paginated_handler))
         .route("/grid/:x/:y", get(get_grid_cell_handler))
+        .route("/snapshot", post(generate_snapshot_handler))
         .route("/cache", post(cache_metadata_handler))
         .route("/cache/:cid_hash", get(get_cached_metadata_handler))
+        .route("/paint-metadata", post(submit_paint_metadata_handler))
+        .route("/paint-metadata", get(get_paint_metadata_handler))
+        .route("/paint-area", post(submit_paint_area_handler))
+        .route("/snapshot-history", get(get_snapshot_history_handler))
         .with_state(app_state)
         .layer(cors);
 

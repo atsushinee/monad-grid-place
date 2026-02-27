@@ -1,11 +1,11 @@
-import { useAccount, useConnect, useDisconnect } from 'wagmi'
+import { useAccount, useConnect, useDisconnect } from 'wagmi';
 
 export function ConnectButton() {
-  const { address, isConnected } = useAccount()
-  const { connectors, connect } = useConnect()
-  const { disconnect } = useDisconnect()
+  const { address, isConnected } = useAccount();
+  const { connectors, connect } = useConnect();
+  const { disconnect } = useDisconnect();
 
-  const buttonStyle = "bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300";
+  const buttonStyle = "bg-[#00FFAA] hover:bg-green-400 text-black font-bold py-2 px-4 rounded-lg transition duration-300 ease-in-out";
 
   if (isConnected) {
     return (
@@ -15,16 +15,22 @@ export function ConnectButton() {
           Disconnect
         </button>
       </div>
-    )
+    );
+  }
+
+  const injectedConnector = connectors.find(c => c.type === 'injected');
+
+  if (!injectedConnector) {
+    return (
+      <a href="https://metamask.io/download/" target="_blank" rel="noopener noreferrer" className={buttonStyle}>
+        Install Wallet
+      </a>
+    );
   }
 
   return (
-    <div>
-      {connectors.map((connector) => (
-        <button key={connector.id} onClick={() => connect({ connector })} className={buttonStyle}>
-          Connect with {connector.name}
-        </button>
-      ))}
-    </div>
-  )
+    <button onClick={() => connect({ connector: injectedConnector })} className={buttonStyle}>
+      Connect Wallet
+    </button>
+  );
 }
