@@ -22,7 +22,7 @@ GridPlace implements a sophisticated hybrid architecture that balances decentral
 3. **Off-Chain for Performance**: Indexed database provides fast queries for frontend rendering
 4. **Event-Driven Sync**: Indexer listens to chain events and maintains off-chain state consistency
 
-### Data Flow
+### Complete Data Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -40,48 +40,85 @@ GridPlace implements a sophisticated hybrid architecture that balances decentral
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                      BACKEND API (Rust)                          │
-│  1. Generate Snapshot (merge old + new pixels)                  │
-│  2. Upload to IPFS → Get CID                                    │
-│  3. Calculate Price (only charge for new pixels)                │
-│  4. Return cidHash & totalPrice                                 │
+│                    BACKEND API (Rust)                            │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ 1. Generate Snapshot (merge old + new pixels)            │   │
+│  │ 2. Upload to IPFS → Get CID                             │   │
+│  │    - Pinata: POST /pinning/pinFileToIPFS                │   │
+│  │    - Local IPFS: POST /api/v0/add                       │   │
+│  │ 3. Calculate Price (only charge for new pixels)         │   │
+│  │ 4. Cache CID Hash → CID mapping (in-memory DashMap)     │   │
+│  │ 5. Return cidHash & totalPrice                          │   │
+│  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    SMART CONTRACT (On-Chain)                     │
-│  • paintArea(indices, cidHash)                                  │
-│  • Verify payment (only for pixels you don't own)               │
-│  • Update ownership on-chain                                    │
-│  • Emit AreaPainted event                                       │
+│                   SMART CONTRACT (On-Chain)                      │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ • paintArea(indices, cidHash)                           │   │
+│  │ • Verify payment (only for pixels you don't own)        │   │
+│  │ • Update ownership on-chain                             │   │
+│  │ • Emit AreaPainted(owner, cidHash, pixelCount, price)   │   │
+│  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      INDEXER (Rust)                              │
-│  1. Listen to AreaPainted events                                │
-│  2. Fetch CID from backend cache                                │
-│  3. Download snapshot from IPFS                                 │
-│  4. Parse & store pixel data to PostgreSQL                      │
-│  5. Record snapshot history                                     │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ 1. Listen to AreaPainted events (WebSocket)             │   │
+│  │ 2. Fetch CID from backend: GET /cache/{cidHash}         │   │
+│  │ 3. Download snapshot from IPFS Gateway                  │   │
+│  │    - Pinata: GET {gateway}/ipfs/{cid}                   │   │
+│  │    - Local IPFS: GET {gateway}/ipfs/{cid}               │   │
+│  │ 4. Parse & store pixel data to PostgreSQL               │   │
+│  │ 5. Record snapshot history                              │   │
+│  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                     POSTGRESQL DATABASE                          │
-│  • grid_cells: x, y, owner, color, link, message, timestamp     │
-│  • snapshot_history: cid, cid_hash, pixel_count, tx_hash        │
-│  • Indexed for fast queries                                     │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ • grid_cells: x, y, owner, color, link, message, ...    │   │
+│  │ • snapshot_history: cid, cid_hash, pixel_count, ...     │   │
+│  │ • Indexed for fast queries                              │   │
+│  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                   FRONTEND (Read Path)                           │
-│  • Query backend API /grid                                      │
-│  • Render canvas with optimized SVG borders                     │
-│  • Real-time updates via polling                                │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ • Query backend API /grid                               │   │
+│  │ • Render canvas with optimized SVG borders              │   │
+│  │ • Real-time updates via polling                         │   │
+│  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### IPFS Dual-Mode Architecture
+
+Both Backend and Indexer support two IPFS modes (configured via `.env`):
+
+| Mode | Backend | Indexer | Use Case |
+|------|---------|---------|----------|
+| **Local IPFS** | Upload: `POST /api/v0/add`<br>Gateway: `http://127.0.0.1:8080` | Gateway: `http://127.0.0.1:8080` | Development |
+| **Pinata** | Upload: `POST /pinning/pinFileToIPFS`<br>Gateway: `https://gateway.pinata.cloud` | Gateway: `https://gateway.pinata.cloud` | Production |
+
+**Why Indexer Only Needs Gateway URL:**
+- Backend uploads snapshots to IPFS (requires API URL)
+- Indexer only reads snapshots from IPFS (only needs Gateway URL)
+- This separation reduces coupling and improves fault tolerance
+
+### Component Responsibilities
+
+| Component | IPFS API | IPFS Gateway | Database Write | Database Read | Cache |
+|-----------|----------|--------------|----------------|---------------|-------|
+| **Backend** | ✅ Upload | ✅ Read | ✅ snapshot_history | ✅ grid_cells | ✅ CID Hash→CID |
+| **Indexer** | ❌ | ✅ Read | ✅ grid_cells, snapshot_history | ❌ | ❌ |
+| **Frontend** | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ## ✨ Key Features
 
@@ -121,15 +158,19 @@ GridPlace implements a sophisticated hybrid architecture that balances decentral
 ### Backend (Rust)
 - **Framework**: Axum (Tokio-based async web framework)
 - **Database**: SQLx with PostgreSQL (compile-time checked queries)
-- **IPFS Integration**: HTTP API for adding/fetching snapshots
-- **Caching**: DashMap for in-memory CID cache
+- **IPFS Integration**: Dual-mode support (Local IPFS + Pinata)
+  - Local IPFS: `POST /api/v0/add`, `GET /ipfs/{cid}`
+  - Pinata: `POST /pinning/pinFileToIPFS`, `GET {gateway}/ipfs/{cid}`
+- **Caching**: DashMap for in-memory CID Hash → CID mapping
+- **Logging**: `env_logger` with configurable log levels via `RUST_LOG`
 - **CORS**: Full cross-origin support for frontend
 
 ### Indexer (Rust)
 - **Blockchain**: Ethers-rs with WebSocket for real-time events
 - **Event Processing**: AreaPainted event listener
-- **IPFS Fetching**: Downloads and parses snapshots
+- **IPFS Fetching**: Dual-mode gateway support (Local + Pinata)
 - **Database Sync**: Batch inserts with upsert logic
+- **Logging**: `env_logger` with detailed step-by-step event processing logs
 
 ### Frontend
 - **Framework**: React 18 + TypeScript + Vite
@@ -140,9 +181,10 @@ GridPlace implements a sophisticated hybrid architecture that balances decentral
 
 ### Infrastructure
 - **Database**: PostgreSQL 14+
-- **IPFS**: Kubo (go-ipfs) for distributed storage
+- **IPFS**: Kubo (go-ipfs) for local development, Pinata for production
 - **Blockchain**: Monad (EVM-compatible L1)
 - **DevOps**: Docker Compose for local development
+- **Logging**: Centralized logging with `log` + `env_logger` crate
 
 ## 📂 Project Structure
 
@@ -153,13 +195,18 @@ monad-grid-place/
 │   │   ├── routes/          # API endpoints
 │   │   │   ├── snapshot.rs  # /snapshot - Generate IPFS snapshot
 │   │   │   ├── paint_area.rs # /paint-area - Record snapshot
+│   │   │   ├── cache.rs     # /cache/:cidHash - CID lookup for Indexer
 │   │   │   ├── grid.rs      # /grid - Fetch pixel data
 │   │   │   └── ...
 │   │   ├── services/        # Business logic
 │   │   │   ├── snapshot_service.rs
-│   │   │   ├── ipfs_service.rs
+│   │   │   ├── ipfs_service.rs    # Dual-mode IPFS (Local + Pinata)
+│   │   │   ├── cache_service.rs
 │   │   │   └── grid_service.rs
-│   │   └── models/          # Data models
+│   │   ├── models/          # Data models
+│   │   ├── config.rs        # Configuration with IPFS dual-mode
+│   │   └── main.rs          # Entry point with logger init
+│   ├── .env.example         # Template with IPFS config (USE_PINATA)
 │   ├── migrations/          # SQLx database migrations
 │   └── Cargo.toml
 │
@@ -171,9 +218,12 @@ monad-grid-place/
 │
 ├── indexer/
 │   ├── src/
-│   │   ├── listener.rs      # Event listener
-│   │   ├── storage.rs       # Database sync logic
+│   │   ├── listener.rs      # Event listener with detailed logging
+│   │   ├── storage.rs       # Database sync + IPFS fetch (dual-mode)
+│   │   ├── config.rs        # Configuration with IPFS dual-mode
 │   │   └── abi.rs           # Contract ABI bindings
+│   ├── .env.example         # Template with IPFS config (USE_PINATA)
+│   ├── IPFS_CONFIG.md       # Detailed IPFS setup guide
 │   └── Cargo.toml
 │
 ├── frontend/
@@ -188,8 +238,10 @@ monad-grid-place/
 │   │       └── index.ts     # TypeScript types
 │   └── package.json
 │
-└── ipfs/
-    └── docker-compose.yml   # Local IPFS + PostgreSQL
+├── ipfs/
+│   └── docker-compose.yml   # Local IPFS + PostgreSQL
+│
+└── README.md                # This file
 ```
 
 ## 🚀 Getting Started
@@ -227,11 +279,44 @@ forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
 
 ### 3. Configure Environment
 
-Update `.env` files in `backend/`, `indexer/`, and `frontend/src/components/PaintModal.tsx` with:
-- Database URL
+#### Backend Configuration
+
+Copy `.env.example` to `.env` in the `backend/` directory:
+
+```bash
+# Local Development (Local IPFS)
+USE_PINATA=false
+IPFS_API_URL=http://127.0.0.1:5001
+IPFS_GATEWAY_URL=http://127.0.0.1:8080
+
+# Production (Pinata)
+USE_PINATA=true
+PINATA_API_KEY=your_pinata_api_key
+PINATA_SECRET_KEY=your_pinata_secret_key
+PINATA_GATEWAY_URL=https://gateway.pinata.cloud
+```
+
+#### Indexer Configuration
+
+Copy `.env.example` to `.env` in the `indexer/` directory:
+
+```bash
+# Must match Backend's IPFS mode!
+
+# Local Development
+USE_PINATA=false
+IPFS_GATEWAY_URL=http://127.0.0.1:8080
+
+# Production (Pinata)
+USE_PINATA=true
+PINATA_GATEWAY_URL=https://gateway.pinata.cloud
+```
+
+#### Frontend Configuration
+
+Update `frontend/src/components/PaintModal.tsx`:
 - Contract address
-- IPFS API URL
-- RPC WebSocket URL
+- Backend API URL
 
 ### 4. Run Database Migrations
 
@@ -248,12 +333,12 @@ Open **three terminals**:
 ```bash
 # Terminal 1: Backend API
 cd backend
-cargo run
+RUST_LOG=info cargo run
 # Runs on http://127.0.0.1:3000
 
 # Terminal 2: Indexer
 cd indexer
-cargo run
+RUST_LOG=info cargo run
 # Listens to blockchain events
 
 # Terminal 3: Frontend
@@ -275,6 +360,42 @@ pnpm dev
 5. Click **Paint** and confirm the transaction
 6. Watch the logs in backend/indexer terminals
 7. After confirmation, the canvas updates automatically
+
+### 7. Logging & Debugging
+
+Both Backend and Indexer use `env_logger` with configurable log levels:
+
+```bash
+# Show all logs (info and above)
+RUST_LOG=info cargo run
+
+# Show debug logs
+RUST_LOG=debug cargo run
+
+# Show only errors
+RUST_LOG=error cargo run
+
+# Per-module log levels
+RUST_LOG=backend::services::ipfs_service=debug,backend=info cargo run
+RUST_LOG=indexer::storage=debug,indexer=info cargo run
+```
+
+**Example Log Output:**
+
+```
+═══════════════════════════════════════════════════════════
+🎨 [Backend] Generating snapshot for owner: 0xabc...
+   - New pixels count: 10
+═══════════════════════════════════════════════════════════
+📤 [IPFS] Uploading snapshot to IPFS...
+   - Mode: Pinata
+   - JSON size: 2048 bytes
+📡 [Pinata] Sending request to: https://api.pinata.cloud/...
+✅ [IPFS] Upload successful! CID: QmXyz...
+💾 [Cache] CID mapping stored:
+   - CID Hash: 0x789...
+   - CID: QmXyz...
+```
 
 ## 🎮 User Guide
 

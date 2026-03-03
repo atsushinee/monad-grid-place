@@ -4,6 +4,7 @@ use crate::{
     AppError,
     AppState,
 };
+use log::info;
 
 /// 涂色请求
 #[derive(Debug, Deserialize)]
@@ -35,7 +36,7 @@ pub struct PaintAreaResponse {
 }
 
 /// 提交涂色快照记录
-/// 
+///
 /// 此接口用于：
 /// 1. 在用户调用合约前，预先记录快照信息
 /// 2. 或者在链上确认后，更新交易信息
@@ -43,6 +44,19 @@ pub async fn submit_paint_area_handler(
     State(state): State<AppState>,
     Json(payload): Json<PaintAreaRequest>,
 ) -> Result<Json<PaintAreaResponse>, AppError> {
+    info!("\n📝 [Paint Area] Submitting paint area record:");
+    info!("   - Owner: {}", payload.owner);
+    info!("   - CID: {}", payload.cid);
+    info!("   - CID Hash: {}", payload.cid_hash);
+    info!("   - Pixel count: {}", payload.pixel_count);
+    info!("   - Total price: {} wei", payload.total_price);
+    if let Some(tx_hash) = &payload.tx_hash {
+        info!("   - TX Hash: {}", tx_hash);
+    }
+    if let Some(block_number) = payload.block_number {
+        info!("   - Block number: {}", block_number);
+    }
+
     // 插入快照历史记录
     let result = sqlx::query!(
         r#"
@@ -64,6 +78,9 @@ pub async fn submit_paint_area_handler(
     .fetch_one(&state.db_pool)
     .await
     .map_err(|e| AppError::InternalServerError(format!("Failed to insert snapshot history: {}", e)))?;
+
+    info!("✅ [Paint Area] Snapshot recorded in database, ID: {}", result.id);
+    info!("═══════════════════════════════════════════════════════════\n");
 
     Ok(Json(PaintAreaResponse {
         success: true,

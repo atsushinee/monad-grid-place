@@ -41,47 +41,84 @@ GridPlace 实现了一个复杂的混合架构，在去中心化、性能和成�
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    后端 API (Rust)                               │
-│  1. 生成快照（合并旧像素 + 新像素）                               │
-│  2. 上传到 IPFS → 获取 CID                                       │
-│  3. 计算价格（只为新像素付费）                                   │
-│  4. 返回 cidHash 和 totalPrice                                   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ 1. 生成快照（合并旧像素 + 新像素）                         │   │
+│  │ 2. 上传到 IPFS → 获取 CID                                │   │
+│  │    - Pinata: POST /pinning/pinFileToIPFS                │   │
+│  │    - 本地 IPFS: POST /api/v0/add                        │   │
+│  │ 3. 计算价格（只为新像素付费）                             │   │
+│  │ 4. 缓存 CID Hash → CID 映射 (内存 DashMap)               │   │
+│  │ 5. 返回 cidHash 和 totalPrice                            │   │
+│  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                   智能合约（链上）                                │
-│  • paintArea(indices, cidHash)                                  │
-│  • 验证支付（只为你不拥有的像素付费）                            │
-│  • 更新链上所有权                                                │
-│  • 触发 AreaPainted 事件                                         │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ • paintArea(indices, cidHash)                           │   │
+│  │ • 验证支付（只为你不拥有的像素付费）                      │   │
+│  │ • 更新链上所有权                                          │   │
+│  │ • 触发 AreaPainted(owner, cidHash, pixelCount, price)   │   │
+│  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    索引器 (Rust)                                 │
-│  1. 监听 AreaPainted 事件                                        │
-│  2. 从后端缓存获取 CID                                           │
-│  3. 从 IPFS 下载快照                                             │
-│  4. 解析像素数据并存储到 PostgreSQL                              │
-│  5. 记录快照历史                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ 1. 监听 AreaPainted 事件 (WebSocket)                     │   │
+│  │ 2. 从后端获取 CID: GET /cache/{cidHash}                 │   │
+│  │ 3. 从 IPFS Gateway 下载快照                              │   │
+│  │    - Pinata: GET {gateway}/ipfs/{cid}                   │   │
+│  │    - 本地 IPFS: GET {gateway}/ipfs/{cid}                │   │
+│  │ 4. 解析像素数据并存储到 PostgreSQL                       │   │
+│  │ 5. 记录快照历史                                          │   │
+│  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                   PostgreSQL 数据库                              │
-│  • grid_cells: x, y, owner, color, link, message, timestamp     │
-│  • snapshot_history: cid, cid_hash, pixel_count, tx_hash        │
-│  • 索引优化快速查询                                              │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ • grid_cells: x, y, owner, color, link, message, ...    │   │
+│  │ • snapshot_history: cid, cid_hash, pixel_count, ...     │   │
+│  │ • 索引优化快速查询                                        │   │
+│  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                  前端（读取路径）                                 │
-│  • 查询后端 API /grid                                           │
-│  • 使用优化的 SVG 边框渲染画布                                    │
-│  • 通过轮询实时更新                                              │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ • 查询后端 API /grid                                     │   │
+│  │ • 使用优化的 SVG 边框渲染画布                              │   │
+│  │ • 通过轮询实时更新                                        │   │
+│  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### IPFS 双模式架构
+
+Backend 和 Indexer 都支持两种 IPFS 模式（通过 `.env` 配置）：
+
+| 模式 | Backend | Indexer | 使用场景 |
+|------|---------|---------|----------|
+| **本地 IPFS** | 上传：`POST /api/v0/add`<br>Gateway: `http://127.0.0.1:8080` | Gateway: `http://127.0.0.1:8080` | 开发环境 |
+| **Pinata** | 上传：`POST /pinning/pinFileToIPFS`<br>Gateway: `https://gateway.pinata.cloud` | Gateway: `https://gateway.pinata.cloud` | 生产环境 |
+
+**为什么 Indexer 只需要 Gateway URL：**
+- Backend 负责上传快照到 IPFS（需要 API URL）
+- Indexer 只从 IPFS 读取快照（只需要 Gateway URL）
+- 这种分离减少了耦合，提高了容错性
+
+### 组件职责
+
+| 组件 | IPFS API | IPFS Gateway | 数据库写入 | 数据库读取 | 缓存 |
+|------|----------|--------------|------------|------------|------|
+| **Backend** | ✅ 上传 | ✅ 读取 | ✅ snapshot_history | ✅ grid_cells | ✅ CID Hash→CID |
+| **Indexer** | ❌ | ✅ 读取 | ✅ grid_cells, snapshot_history | ❌ | ❌ |
+| **Frontend** | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ## ✨ 核心特性
 
@@ -121,15 +158,19 @@ GridPlace 实现了一个复杂的混合架构，在去中心化、性能和成�
 ### 后端（Rust）
 - **框架**：Axum（基于 Tokio 的异步 Web 框架）
 - **数据库**：SQLx + PostgreSQL（编译时检查查询）
-- **IPFS 集成**：HTTP API 添加/获取快照
-- **缓存**：DashMap 内存 CID 缓存
+- **IPFS 集成**：双模式支持（本地 IPFS + Pinata）
+  - 本地 IPFS: `POST /api/v0/add`, `GET /ipfs/{cid}`
+  - Pinata: `POST /pinning/pinFileToIPFS`, `GET {gateway}/ipfs/{cid}`
+- **缓存**：DashMap 内存 CID Hash → CID 映射
+- **日志**：`env_logger` 通过 `RUST_LOG` 配置日志级别
 - **CORS**：完整的跨域支持
 
 ### 索引器（Rust）
 - **区块链**：Ethers-rs + WebSocket 实时事件
 - **事件处理**：AreaPainted 事件监听器
-- **IPFS 获取**：下载并解析快照
+- **IPFS 获取**：双模式 Gateway 支持（本地 + Pinata）
 - **数据库同步**：批量插入 + upsert 逻辑
+- **日志**：`env_logger` 详细的事件处理步骤日志
 
 ### 前端
 - **框架**：React 18 + TypeScript + Vite
@@ -140,9 +181,10 @@ GridPlace 实现了一个复杂的混合架构，在去中心化、性能和成�
 
 ### 基础设施
 - **数据库**：PostgreSQL 14+
-- **IPFS**：Kubo (go-ipfs) 分布式存储
+- **IPFS**：Kubo (go-ipfs) 本地开发，Pinata 生产环境
 - **区块链**：Monad（EVM 兼容 L1）
 - **DevOps**：Docker Compose 本地开发
+- **日志**：集中式日志系统 `log` + `env_logger`
 
 ## 📂 项目结构
 
@@ -153,13 +195,18 @@ monad-grid-place/
 │   │   ├── routes/          # API 端点
 │   │   │   ├── snapshot.rs  # /snapshot - 生成 IPFS 快照
 │   │   │   ├── paint_area.rs # /paint-area - 记录快照
+│   │   │   ├── cache.rs     # /cache/:cidHash - Indexer CID 查询
 │   │   │   ├── grid.rs      # /grid - 获取像素数据
 │   │   │   └── ...
 │   │   ├── services/        # 业务逻辑
 │   │   │   ├── snapshot_service.rs
-│   │   │   ├── ipfs_service.rs
+│   │   │   ├── ipfs_service.rs    # 双模式 IPFS (本地 + Pinata)
+│   │   │   ├── cache_service.rs
 │   │   │   └── grid_service.rs
-│   │   └── models/          # 数据模型
+│   │   ├── models/          # 数据模型
+│   │   ├── config.rs        # IPFS 双模式配置
+│   │   └── main.rs          # 入口点，日志初始化
+│   ├── .env.example         # 配置模板（含 USE_PINATA）
 │   ├── migrations/          # SQLx 数据库迁移
 │   └── Cargo.toml
 │
@@ -171,9 +218,12 @@ monad-grid-place/
 │
 ├── indexer/
 │   ├── src/
-│   │   ├── listener.rs      # 事件监听器
-│   │   ├── storage.rs       # 数据库同步逻辑
+│   │   ├── listener.rs      # 事件监听器，详细日志
+│   │   ├── storage.rs       # 数据库同步 + IPFS 获取（双模式）
+│   │   ├── config.rs        # IPFS 双模式配置
 │   │   └── abi.rs           # 合约 ABI 绑定
+│   ├── .env.example         # 配置模板（含 USE_PINATA）
+│   ├── IPFS_CONFIG.md       # IPFS 配置详细指南
 │   └── Cargo.toml
 │
 ├── frontend/
@@ -188,8 +238,10 @@ monad-grid-place/
 │   │       └── index.ts     # TypeScript 类型定义
 │   └── package.json
 │
-└── ipfs/
-    └── docker-compose.yml   # 本地 IPFS + PostgreSQL
+├── ipfs/
+│   └── docker-compose.yml   # 本地 IPFS + PostgreSQL
+│
+└── README.md                # 本文件
 ```
 
 ## 🚀 快速开始
@@ -227,11 +279,44 @@ forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
 
 ### 3. 配置环境变量
 
-更新 `backend/`、`indexer/` 和 `frontend/src/components/PaintModal.tsx` 中的 `.env` 文件：
-- 数据库 URL
+#### Backend 配置
+
+复制 `backend/` 目录中的 `.env.example` 到 `.env`：
+
+```bash
+# 本地开发（本地 IPFS）
+USE_PINATA=false
+IPFS_API_URL=http://127.0.0.1:5001
+IPFS_GATEWAY_URL=http://127.0.0.1:8080
+
+# 生产环境（Pinata）
+USE_PINATA=true
+PINATA_API_KEY=your_pinata_api_key
+PINATA_SECRET_KEY=your_pinata_secret_key
+PINATA_GATEWAY_URL=https://gateway.pinata.cloud
+```
+
+#### Indexer 配置
+
+复制 `indexer/` 目录中的 `.env.example` 到 `.env`：
+
+```bash
+# 必须与 Backend 的 IPFS 模式一致！
+
+# 本地开发
+USE_PINATA=false
+IPFS_GATEWAY_URL=http://127.0.0.1:8080
+
+# 生产环境（Pinata）
+USE_PINATA=true
+PINATA_GATEWAY_URL=https://gateway.pinata.cloud
+```
+
+#### Frontend 配置
+
+更新 `frontend/src/components/PaintModal.tsx`：
 - 合约地址
-- IPFS API URL
-- RPC WebSocket URL
+- 后端 API URL
 
 ### 4. 运行数据库迁移
 
@@ -248,12 +333,12 @@ sqlx migrate run
 ```bash
 # 终端 1：后端 API
 cd backend
-cargo run
+RUST_LOG=info cargo run
 # 运行在 http://127.0.0.1:3000
 
 # 终端 2：索引器
 cd indexer
-cargo run
+RUST_LOG=info cargo run
 # 监听区块链事件
 
 # 终端 3：前端
@@ -275,6 +360,42 @@ pnpm dev
 5. 点击 **Paint** 并确认交易
 6. 观察后端/索引器终端的日志
 7. 交易确认后，画布自动更新
+
+### 7. 日志与调试
+
+Backend 和 Indexer 都使用 `env_logger`，可配置日志级别：
+
+```bash
+# 显示所有日志（info 及以上）
+RUST_LOG=info cargo run
+
+# 显示调试日志
+RUST_LOG=debug cargo run
+
+# 只显示错误
+RUST_LOG=error cargo run
+
+# 按模块设置日志级别
+RUST_LOG=backend::services::ipfs_service=debug,backend=info cargo run
+RUST_LOG=indexer::storage=debug,indexer=info cargo run
+```
+
+**日志输出示例：**
+
+```
+═══════════════════════════════════════════════════════════
+🎨 [Backend] Generating snapshot for owner: 0xabc...
+   - New pixels count: 10
+═══════════════════════════════════════════════════════════
+📤 [IPFS] Uploading snapshot to IPFS...
+   - Mode: Pinata
+   - JSON size: 2048 bytes
+📡 [Pinata] Sending request to: https://api.pinata.cloud/...
+✅ [IPFS] Upload successful! CID: QmXyz...
+💾 [Cache] CID mapping stored:
+   - CID Hash: 0x789...
+   - CID: QmXyz...
+```
 
 ## 🎮 用户指南
 

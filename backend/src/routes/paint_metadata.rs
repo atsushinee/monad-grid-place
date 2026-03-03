@@ -5,6 +5,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use crate::{AppState, AppError};
+use log::info;
 
 /// 提交像素元数据请求
 #[derive(Debug, Deserialize)]
@@ -42,7 +43,7 @@ pub async fn submit_paint_metadata_handler(
     let mut cache = state.paint_metadata_cache.write().await;
     cache.insert(payload.player.clone(), payload.pixels);
 
-    println!("📦 Stored paint metadata for player: {}", payload.player);
+    info!("📦 Stored paint metadata for player: {}", payload.player);
 
     Ok(StatusCode::OK)
 }

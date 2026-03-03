@@ -1,6 +1,7 @@
 use anyhow::Result;
 use sqlx::postgres::PgPoolOptions;
 use reqwest::Client;
+use log::info;
 
 mod config;
 mod listener;
@@ -9,14 +10,16 @@ mod abi;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
+
     let config = config::Config::from_env()?;
 
-    println!("Connecting to database...");
+    info!("Connecting to database...");
     let db_pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&config.database_url)
         .await?;
-    println!("Database connected.");
+    info!("Database connected.");
 
     let http_client = Client::new();
 

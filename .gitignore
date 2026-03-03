@@ -23,3 +23,7 @@ target
 /backend/.sqlx/query-get_grid_cell.json
 /backend/.sqlx/query-get_grid_cells_paginated.json
 /backend/.sqlx/query-get_owner_pixels.json
+/backend/.idea/.gitignore
+/backend/.idea/backend.iml
+/backend/.idea/modules.xml
+/backend/.idea/vcs.xml

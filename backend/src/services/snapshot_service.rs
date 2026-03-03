@@ -11,6 +11,7 @@ use crate::{
     AppError,
     AppState,
 };
+use log::info;
 
 /// 基础价格：0.01 ETH per pixel
 const BASE_PRICE_WEI: u64 = 10_000_000_000_000_000;
@@ -32,11 +33,15 @@ pub async fn generate_snapshot(
     state: &AppState,
     payload: &SnapshotRequest,
 ) -> Result<SnapshotResponse, AppError> {
+    info!("\n═══════════════════════════════════════════════════════════");
+    info!("🎨 [Backend] Generating snapshot for owner: {}", payload.owner);
+    info!("   - New pixels count: {}", payload.new_pixels.len());
+    info!("═══════════════════════════════════════════════════════════");
+
     // 1. 从数据库获取 owner 已有的像素
     let old_pixels = grid_service::get_owner_pixels(&state.db_pool, &payload.owner)
         .await?;
-    println!("📦 generate_snapshot: old_pixels count = {}", old_pixels.len());
-    println!("📦 generate_snapshot: new_pixels count = {}", payload.new_pixels.len());
+    info!("📦 [Snapshot] Fetched old pixels from database: {} pixels", old_pixels.len());
 
     // 2. 合并旧像素和新像素（新像素覆盖同坐标的旧像素）
     let mut pixel_map: HashMap<(i32, i32), SnapshotPixelData> = HashMap::new();
@@ -56,7 +61,6 @@ pub async fn generate_snapshot(
             extra_data: serde_json::Value::Null,
         });
     }
-    println!("📦 pixel_map after adding old_pixels: {} pixels", pixel_map.len());
 
     // 添加新像素
     let mut new_pixel_count = 0;
@@ -83,11 +87,11 @@ pub async fn generate_snapshot(
             new_pixel_count += 1;
         }
     }
-    println!("📦 pixel_map after adding new_pixels: {} pixels, new_pixel_count = {}", pixel_map.len(), new_pixel_count);
 
     let all_pixels: Vec<SnapshotPixelData> = pixel_map.values().cloned().collect();
     let update_pixel_count = all_pixels.len() as u64 - new_pixel_count;
-    println!("📦 all_pixels count = {}, update_pixel_count = {}", all_pixels.len(), update_pixel_count);
+    info!("📦 [Snapshot] Merged pixels - Total: {}, New: {}, Updated: {}",
+             all_pixels.len(), new_pixel_count, update_pixel_count);
 
     // 3. 创建快照 JSON
     let snapshot = Snapshot {
@@ -99,6 +103,8 @@ pub async fn generate_snapshot(
     };
     let snapshot_json = json!(snapshot);
 
+    info!("📄 [Snapshot] Created snapshot JSON, owner: {}", snapshot.owner);
+
     // 4. 上传到 IPFS
     let cid = ipfs_service::add_json_to_ipfs(state, &snapshot_json).await?;
     let cid_hash = keccak256(cid.as_bytes());
@@ -109,10 +115,16 @@ pub async fn generate_snapshot(
 
     // 6. 计算价格
     let base_price = new_pixel_count * BASE_PRICE_WEI;
-    // TODO: 未来可以在这里添加溢价逻辑（热门位置、需求定价等）
     let premium_price: Option<u64> = None;
     let discount: Option<u64> = None;
     let total_price = base_price;
+
+    info!("💰 [Snapshot] Price calculated - Base: {} wei, Total: {} wei",
+             base_price, total_price);
+    info!("✅ [Snapshot] Snapshot generation completed!");
+    info!("   - CID: {}", cid);
+    info!("   - CID Hash: {}", cid_hash_hex);
+    info!("═══════════════════════════════════════════════════════════\n");
 
     // 7. 准备响应
     Ok(SnapshotResponse {
